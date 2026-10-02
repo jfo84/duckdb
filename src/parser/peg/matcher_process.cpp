@@ -7,6 +7,13 @@
 
 namespace duckdb {
 
+void match_process_deleter::operator()(MatchProcess *process) {
+	process->~MatchProcess();
+	if (pool) {
+		pool->Release(data_ptr_cast(process), size);
+	}
+}
+
 MatchStep MatchStep::Child(MatchInput input) {
 	return MatchStep(input, nullopt);
 }
@@ -43,7 +50,7 @@ private:
 	bool completed = false;
 };
 
-arena_ptr<MatchProcess> AtomicMatcher::StartMatch(MatchState &state) const {
+match_process_ptr AtomicMatcher::StartMatch(MatchState &state) const {
 	return state.Make<AtomicMatchProcess>(*this, state);
 }
 
@@ -152,7 +159,7 @@ private:
 	bool awaiting_child = false;
 };
 
-arena_ptr<MatchProcess> ListMatcher::StartMatch(MatchState &state) const {
+match_process_ptr ListMatcher::StartMatch(MatchState &state) const {
 	return state.Make<ListMatchProcess>(*this, state);
 }
 
@@ -202,11 +209,11 @@ private:
 	bool awaiting_child = false;
 };
 
-arena_ptr<MatchProcess> ChoiceMatcher::StartMatch(MatchState &state) const {
+match_process_ptr ChoiceMatcher::StartMatch(MatchState &state) const {
 	return state.Make<ChoiceMatchProcess<false>>(*this, state);
 }
 
-arena_ptr<MatchProcess> LiteralChoiceMatcher::StartMatch(MatchState &state) const {
+match_process_ptr LiteralChoiceMatcher::StartMatch(MatchState &state) const {
 	auto literal = state.token_iterator.CurrentLiteralInfo(table);
 	auto entry = literal_children.find(literal.LiteralId());
 	auto child_index = entry == literal_children.end() ? matchers.size() : entry->second;
@@ -248,7 +255,7 @@ private:
 	bool awaiting_child = false;
 };
 
-arena_ptr<MatchProcess> OptionalMatcher::StartMatch(MatchState &state) const {
+match_process_ptr OptionalMatcher::StartMatch(MatchState &state) const {
 	return state.Make<OptionalMatchProcess>(*this, state);
 }
 
@@ -301,7 +308,7 @@ private:
 	bool awaiting_child = false;
 };
 
-arena_ptr<MatchProcess> RepeatMatcher::StartMatch(MatchState &state) const {
+match_process_ptr RepeatMatcher::StartMatch(MatchState &state) const {
 	return state.Make<RepeatMatchProcess>(*this, state);
 }
 

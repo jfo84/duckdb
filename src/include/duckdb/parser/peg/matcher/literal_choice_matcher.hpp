@@ -11,7 +11,7 @@ public:
 	    : ChoiceMatcher(std::move(matchers)), table(table_p), literal_children(std::move(literal_children_p)) {
 	}
 
-	arena_ptr<MatchProcess> StartMatch(MatchState &state) const override;
+	match_process_ptr StartMatch(MatchState &state) const override;
 
 private:
 	const GrammarLiteralTable &table;

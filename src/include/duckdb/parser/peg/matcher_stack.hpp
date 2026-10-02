@@ -36,7 +36,7 @@ public:
 public:
 	const Matcher &matcher;
 	MatchState &match_state;
-	arena_ptr<MatchProcess> process;
+	match_process_ptr process;
 	optional<MatcherResult> child_result;
 	optional<MatcherResult> result;
 	PackratMatchState packrat_state;

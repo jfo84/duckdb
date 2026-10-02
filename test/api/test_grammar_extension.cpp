@@ -556,7 +556,7 @@ public:
 	GrammarExtensionTestMatcher() : child("ANSWER", KeywordInfo()) {
 	}
 
-	arena_ptr<MatchProcess> StartMatch(MatchState &state) const override {
+	match_process_ptr StartMatch(MatchState &state) const override {
 		return state.Make<GrammarExtensionTestMatchProcess>(child, state);
 	}
 
@@ -778,7 +778,7 @@ public:
 	    : Matcher(MatcherType::LIST), lifetime(lifetime_p) {
 	}
 
-	arena_ptr<MatchProcess> StartMatch(MatchState &state) const override {
+	match_process_ptr StartMatch(MatchState &state) const override {
 		return state.Make<NestedTestMatchProcess>(*this, state, lifetime);
 	}
 
@@ -887,7 +887,7 @@ public:
 	explicit DerivedListTestMatcher(MatchProcessLifetimeState &lifetime_p) : lifetime(lifetime_p) {
 	}
 
-	arena_ptr<MatchProcess> StartMatch(MatchState &state) const override {
+	match_process_ptr StartMatch(MatchState &state) const override {
 		return state.Make<NestedTestMatchProcess>(*this, state, lifetime);
 	}
 
@@ -923,7 +923,7 @@ public:
 	explicit ArenaNestedTestMatcher(MatchProcessLifetimeState &lifetime_p) : lifetime(lifetime_p) {
 	}
 
-	arena_ptr<MatchProcess> StartMatch(MatchState &state) const override {
+	match_process_ptr StartMatch(MatchState &state) const override {
 		if (lifetime.active % 2) {
 			return state.Make<ArenaNestedTestMatchProcess<9000>>(*this, state, lifetime);
 		}

@@ -30,6 +30,15 @@ class ParseResultAllocator;
 class Matcher;
 class MatcherAllocator;
 class MatchProcess;
+class MatchProcessPool;
+
+//! Destroys a MatchProcess and returns its block to the pool it came from.
+struct match_process_deleter { // NOLINT: match stl case
+	MatchProcessPool *pool = nullptr;
+	idx_t size = 0;
+	void operator()(MatchProcess *process);
+};
+using match_process_ptr = unique_ptr<MatchProcess, match_process_deleter>;
 
 enum class SuggestionState : uint8_t {
 	SUGGEST_KEYWORD,
@@ -146,6 +155,42 @@ struct MatcherSuggestion {
 	char extra_char = '\0';
 };
 
+//! Recycles MatchProcess memory within one statement. Processes are created and destroyed many times per
+//! token, and an arena alone keeps every one until the statement ends; a freed block serves the next
+//! process of the same size instead.
+class MatchProcessPool {
+public:
+	explicit MatchProcessPool(ArenaAllocator &arena_p) : arena(arena_p) {
+	}
+	data_ptr_t Allocate(idx_t size) {
+		for (auto &entry : free_lists) {
+			if (entry.first == size) {
+				if (entry.second.empty()) {
+					break;
+				}
+				auto block = entry.second.back();
+				entry.second.pop_back();
+				return block;
+			}
+		}
+		return arena.AllocateAligned(size);
+	}
+	void Release(data_ptr_t block, idx_t size) {
+		for (auto &entry : free_lists) {
+			if (entry.first == size) {
+				entry.second.push_back(block);
+				return;
+			}
+		}
+		free_lists.emplace_back(size, vector<data_ptr_t> {block});
+	}
+
+private:
+	ArenaAllocator &arena;
+	//! One entry per process class size; there are few, so a linear scan beats a hash.
+	vector<pair<idx_t, vector<data_ptr_t>>> free_lists;
+};
+
 struct MatchContext {
 	MatchContext(vector<MatcherSuggestion> &suggestions_p, ParseResultAllocator &allocator_p,
 	             ArenaAllocator &process_allocator_p, idx_t &max_token_index_p,
@@ -154,7 +199,7 @@ struct MatchContext {
 	             ParserPackratCache *packrat_cache_p = nullptr)
 	    : suggestions(suggestions_p), allocator(allocator_p), process_allocator(process_allocator_p),
 	      max_token_index(max_token_index_p), identifier_case_mode(identifier_case_mode_p),
-	      packrat_cache(packrat_cache_p), mode(mode_p) {
+	      packrat_cache(packrat_cache_p), mode(mode_p), process_pool(process_allocator_p) {
 	}
 
 	vector<MatcherSuggestion> &suggestions;
@@ -164,6 +209,7 @@ struct MatchContext {
 	IdentifierCaseMode identifier_case_mode;
 	ParserPackratCache *packrat_cache;
 	MatchMode mode;
+	MatchProcessPool process_pool;
 };
 
 struct MatchState {
@@ -187,7 +233,7 @@ struct MatchState {
 	MatcherResult AllocateParseResult(ARGS &&... args);
 
 	template <class PROCESS, class... ARGS>
-	arena_ptr<MatchProcess> Make(ARGS &&... args);
+	match_process_ptr Make(ARGS &&... args);
 
 	void UpdateMaxTokenIndex() {
 		if (token_iterator.Position() > context.max_token_index) {
@@ -273,7 +319,7 @@ public:
 	//! Match and construct the parse result
 	MatcherResult MatchParseResult(MatchState &state) const;
 	//! Create matcher-local state with state.Make<PROCESS>() for either execution driver.
-	virtual arena_ptr<MatchProcess> StartMatch(MatchState &state) const = 0;
+	virtual match_process_ptr StartMatch(MatchState &state) const = 0;
 	virtual bool IsAtomic() const {
 		return false;
 	}
@@ -351,7 +397,7 @@ public:
 	bool IsAtomic() const final {
 		return true;
 	}
-	DUCKDB_API arena_ptr<MatchProcess> StartMatch(MatchState &state) const final;
+	DUCKDB_API match_process_ptr StartMatch(MatchState &state) const final;
 	virtual MatcherResult MatchAtomic(MatchState &state) const = 0;
 };
 
@@ -385,9 +431,11 @@ private:
 };
 
 template <class PROCESS, class... ARGS>
-arena_ptr<MatchProcess> MatchState::Make(ARGS &&... args) {
+match_process_ptr MatchState::Make(ARGS &&... args) {
 	static_assert(std::is_base_of<MatchProcess, PROCESS>::value, "Expected a matcher process");
-	return arena_ptr<MatchProcess>(context.process_allocator.Make<PROCESS>(std::forward<ARGS>(args)...));
+	auto block = context.process_pool.Allocate(sizeof(PROCESS));
+	auto process = new (block) PROCESS(std::forward<ARGS>(args)...);
+	return match_process_ptr(process, match_process_deleter {&context.process_pool, sizeof(PROCESS)});
 }
 
 template <class RESULT, class... ARGS>
