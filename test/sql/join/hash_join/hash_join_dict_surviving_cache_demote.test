@@ -1,0 +1,36 @@
+# name: test/sql/join/hash_join/hash_join_dict_surviving_cache_demote.test
+# description: The chunk cache demotes a hash join's global dictionary column to flat when a later chunk carries it as a CONSTANT vector
+# group: [hash_join]
+
+# 262,644 probe rows pass the 262,144-row estimate that turns on dictionary emission for the 1-row build side, so a.s
+# leaves the hash join as a global dictionary.
+
+foreach threads 1 8
+
+statement ok
+SET threads=${threads};
+
+# Blockwise NL join: the last probe chunk holds 500 rows, fewer than the 1,500 right rows, so its cross product scans
+# the left side row by row and references each value as a CONSTANT vector while the cache holds dictionary rows.
+query I
+SELECT count(*)
+FROM range(262644) b(i)
+JOIN (VALUES (0, 'x')) a(k, s) ON a.k = b.i // 100000000
+JOIN range(1500) cal(j) ON CASE WHEN a.s = 'y' THEN b.i = cal.j ELSE b.i % 2999 = cal.j END;
+----
+132000
+
+# UNNEST: one-element lists slice the input (dictionary kept); a 5,000-element list fills whole chunks from one row,
+# which UNNEST references as a CONSTANT vector, and the filter above caches both.
+query I
+SELECT count(*)
+FROM (
+	SELECT a.s, unnest(CASE WHEN b.i % 100000 = 99999 THEN range(5000) ELSE [b.i] END) AS u
+	FROM range(300000) b(i)
+	JOIN (VALUES (0, 'x')) a(k, s) ON a.k = b.i // 100000000
+)
+WHERE (u + length(s)) % 97 = 0;
+----
+3245
+
+endloop
