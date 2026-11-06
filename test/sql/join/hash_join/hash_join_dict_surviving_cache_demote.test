@@ -1,5 +1,5 @@
 # name: test/sql/join/hash_join/hash_join_dict_surviving_cache_demote.test
-# description: The chunk cache demotes a hash join's global dictionary column to flat when a later chunk carries it as a CONSTANT vector
+# description: Values above the chunk cache when a cross product or UNNEST passes a hash join's global dictionary column one row at a time
 # group: [hash_join]
 
 # 262,644 and 300,000 probe rows pass the 262,144-row estimate that turns on dictionary emission for the small build
@@ -11,7 +11,7 @@ statement ok
 SET threads=${threads};
 
 # Blockwise NL join: the last probe chunk holds 500 rows, fewer than the 1,500 right rows, so its cross product scans
-# the left side row by row and references each value as a CONSTANT vector while the cache holds dictionary rows.
+# the left side row by row while the cache holds dictionary rows. The demote itself is test_caching_operator_dict_demote.
 query I
 SELECT count(*)
 FROM range(262644) b(i)
@@ -20,8 +20,8 @@ JOIN range(1500) cal(j) ON CASE WHEN a.s = 'y' THEN b.i = cal.j ELSE b.i % 2999 
 ----
 132000
 
-# UNNEST: one-element lists slice the input (dictionary kept); a 5,000-element list fills whole chunks from one row,
-# which UNNEST references as a CONSTANT vector, and the filter above caches both.
+# UNNEST: one-element lists slice the input; a 5,000-element list fills whole chunks from one row, and the filter
+# above caches both.
 query I
 SELECT count(*)
 FROM (
