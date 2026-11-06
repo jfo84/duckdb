@@ -2,8 +2,8 @@
 # description: The chunk cache demotes a hash join's global dictionary column to flat when a later chunk carries it as a CONSTANT vector
 # group: [hash_join]
 
-# 262,644 probe rows pass the 262,144-row estimate that turns on dictionary emission for the 1-row build side, so a.s
-# leaves the hash join as a global dictionary.
+# 262,644 and 300,000 probe rows pass the 262,144-row estimate that turns on dictionary emission for the small build
+# side, so a.s leaves the hash join as a global dictionary.
 
 foreach threads 1 8
 
@@ -32,5 +32,36 @@ FROM (
 WHERE (u + length(s)) % 97 = 0;
 ----
 3245
+
+# The demoted column's values above each cache: an inline string, a non-inline string and NULL, matched 4:2:1, with
+# each group's probe sum tying the value to its rows. A wrong selection over the cached rows moves rows between groups.
+query III
+SELECT a.s, count(*), sum(b.i)
+FROM range(262644) b(i)
+JOIN (VALUES (0, 'x'), (1, 'a string longer than twelve bytes'), (2, NULL)) a(k, s)
+	ON a.k = CASE WHEN b.i % 7 < 4 THEN 0 WHEN b.i % 7 < 6 THEN 1 ELSE 2 END
+JOIN range(1500) cal(j) ON CASE WHEN a.s = 'y' THEN b.i = cal.j ELSE b.i % 2999 = cal.j END
+GROUP BY a.s
+ORDER BY a.s NULLS LAST;
+----
+a string longer than twelve bytes	37713	4948188266
+x	75430	9896868580
+NULL	18857	2474135154
+
+query III
+SELECT s, count(*), sum(i)
+FROM (
+	SELECT b.i, a.s, unnest(CASE WHEN b.i % 100000 = 99999 THEN range(5000) ELSE [b.i] END) AS u
+	FROM range(300000) b(i)
+	JOIN (VALUES (0, 'x'), (1, 'a string longer than twelve bytes'), (2, NULL)) a(k, s)
+		ON a.k = CASE WHEN b.i % 7 < 4 THEN 0 WHEN b.i % 7 < 6 THEN 1 ELSE 2 END
+)
+WHERE (u + coalesce(length(s), 0)) % 97 = 0
+GROUP BY s
+ORDER BY s NULLS LAST;
+----
+a string longer than twelve bytes	935	137808681
+x	1869	290673918
+NULL	442	66218893
 
 endloop
