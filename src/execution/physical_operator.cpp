@@ -525,13 +525,10 @@ static void AppendToCache(CachingOperatorState &state, DataChunk &source, Client
 				}
 				continue;
 			}
-			// A global dictionary wraps the same entry for the producer's lifetime, so a change is a producer bug
-			// that would desync the downstream sink layout -> fail loudly. A non-global dict rotating is normal.
-			if (slot.entry->global_dictionary) {
-				throw InternalException("dict-surviving cache: global dictionary column %llu changed identity "
-				                        "after being seeded for dictionary caching",
-				                        static_cast<uint64_t>(col_idx));
-			}
+			// Operators between a global dictionary's producer and this cache may re-represent its column per chunk
+			// (the cross product and UNNEST reference one row as a CONSTANT vector), so demote the column to flat
+			// exactly as for a rotating non-global dict: the cached rows materialize from the pinned entry and the
+			// new rows append as given, which is what this operator emits with caching off.
 			FlattenDictColumn(state, cache, col_idx, base);
 		}
 		// reached by originally-flat and just-demoted columns
