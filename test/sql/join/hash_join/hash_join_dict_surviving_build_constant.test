@@ -1,0 +1,60 @@
+# name: test/sql/join/hash_join/hash_join_dict_surviving_build_constant.test
+# description: A dict-surviving hash join build accepts a global dictionary column that a cross product or UNNEST referenced one row at a time
+# group: [hash_join]
+
+# The inner join's 262,644 and 300,000 probe rows pass the 262,144-row estimate, so r.s leaves it as a global
+# dictionary; the 5,000,000-row probe of the outer join then narrows r.s on its build side.
+
+foreach caching true false
+
+statement ok
+SET debug_enable_caching_operators=${caching};
+
+foreach threads 1 8
+
+statement ok
+SET threads=${threads};
+
+# Blockwise NL join: the last 500-row probe chunk is smaller than the 1,500 right rows, so the cross product scans it
+# row by row. Each r.i matches one p.x, so the groups are those of the same query without the outer join.
+query III
+SELECT r.s, count(*), sum(p.x)
+FROM range(5000000) p(x)
+JOIN (
+	SELECT b.i, a.s
+	FROM range(262644) b(i)
+	JOIN (VALUES (0, 'x'), (1, 'a string longer than twelve bytes'), (2, NULL)) a(k, s)
+		ON a.k = CASE WHEN b.i % 7 < 4 THEN 0 WHEN b.i % 7 < 6 THEN 1 ELSE 2 END
+	JOIN range(1500) cal(j) ON CASE WHEN a.s = 'y' THEN b.i = cal.j ELSE b.i % 2999 = cal.j END
+) r ON p.x = r.i
+GROUP BY r.s
+ORDER BY r.s NULLS LAST;
+----
+a string longer than twelve bytes	37713	4948188266
+x	75430	9896868580
+NULL	18857	2474135154
+
+# UNNEST: a 5,000-element list fills whole chunks from one input row, which pass r.s through one row at a time.
+query III
+SELECT r.s, count(*), sum(p.x)
+FROM range(5000000) p(x)
+JOIN (
+	SELECT i, s
+	FROM (
+		SELECT b.i, a.s, unnest(CASE WHEN b.i % 100000 = 99999 THEN range(5000) ELSE [b.i] END) AS u
+		FROM range(300000) b(i)
+		JOIN (VALUES (0, 'x'), (1, 'a string longer than twelve bytes'), (2, NULL)) a(k, s)
+			ON a.k = CASE WHEN b.i % 7 < 4 THEN 0 WHEN b.i % 7 < 6 THEN 1 ELSE 2 END
+	)
+	WHERE (u + coalesce(length(s), 0)) % 97 = 0
+) r ON p.x = r.i
+GROUP BY r.s
+ORDER BY r.s NULLS LAST;
+----
+a string longer than twelve bytes	935	137808681
+x	1869	290673918
+NULL	442	66218893
+
+endloop
+
+endloop

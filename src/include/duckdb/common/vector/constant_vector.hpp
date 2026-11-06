@@ -86,6 +86,10 @@ struct ConstantVector {
 	//! Turns "vector" into a constant vector by referencing a value within the source vector
 	DUCKDB_API static void Reference(Vector &vector, count_t count, const Vector &source, idx_t position,
 	                                 idx_t source_count);
+	//! As Reference, but a global dictionary source stays a dictionary over the same entry and index, so a consumer
+	//! keyed on its id (the chunk cache, a dict-surviving join build) does not see the column change identity
+	DUCKDB_API static void ReferenceKeepingGlobalDictionary(Vector &vector, count_t count, const Vector &source,
+	                                                        idx_t position, idx_t source_count);
 
 	static const sel_t ZERO_VECTOR[STANDARD_VECTOR_SIZE];
 };

@@ -226,8 +226,8 @@ OperatorResultType PhysicalUnnest::ExecuteInternal(ExecutionContext &context, Da
 			for (idx_t col_idx = 0; col_idx < input.ColumnCount(); col_idx++) {
 				if (unnest_list_count == 1) {
 					// everything belongs to the same row - we can do a constant reference
-					ConstantVector::Reference(chunk.data[col_idx], count_t(result_length), input.data[col_idx],
-					                          initial_row, input.size());
+					ConstantVector::ReferenceKeepingGlobalDictionary(chunk.data[col_idx], count_t(result_length),
+					                                                 input.data[col_idx], initial_row, input.size());
 				} else {
 					// input values come from different rows - we need to slice
 					chunk.data[col_idx].Slice(input.data[col_idx], state.input_sel, result_length);

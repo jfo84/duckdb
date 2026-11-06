@@ -1,5 +1,6 @@
 #include "duckdb/common/vector/constant_vector.hpp"
 #include "duckdb/common/vector/array_vector.hpp"
+#include "duckdb/common/vector/dictionary_vector.hpp"
 #include "duckdb/common/vector/flat_vector.hpp"
 #include "duckdb/common/vector/list_vector.hpp"
 #include "duckdb/common/vector/string_vector.hpp"
@@ -133,6 +134,20 @@ const SelectionVector *ConstantVector::ZeroSelectionVector(idx_t count, Selectio
 		owned_sel.set_index(i, 0);
 	}
 	return &owned_sel;
+}
+
+void ConstantVector::ReferenceKeepingGlobalDictionary(Vector &vector, count_t count, const Vector &source,
+                                                      idx_t position, idx_t source_count) {
+	if (!DictionaryVector::IsGlobalDictionary(source)) {
+		Reference(vector, count, source, position, source_count);
+		return;
+	}
+	const idx_t row_count = count;
+	SelectionVector sel(row_count);
+	for (idx_t i = 0; i < row_count; i++) {
+		sel.set_index(i, position);
+	}
+	vector.Slice(source, sel, row_count);
 }
 
 void ConstantVector::Reference(Vector &vector, count_t count, const Vector &source, idx_t position,
